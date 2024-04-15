@@ -1,0 +1,61 @@
+// Load and filter the Landsat 8 image collection based on geographic bounds and date, then select the image with the least cloud cover.
+var image = ee.Image(ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+    .filterBounds(Nanaimo)
+    .filterDate('2020-07-01', '2020-08-31')
+    .sort('CLOUD_COVER')
+    .first());
+
+// Add the selected image to the map with specific band combination for visual inspection.
+Map.addLayer(image, {bands: ['B4', 'B3', 'B2'], min: 0, max: 3000}, 'Nanaimo Cloud');
+
+// Merge different feature collections representing various land cover classes into a single feature collection.
+var classNames = water.merge(forest).merge(urban).merge(barren).merge(grass);
+print(classNames);
+
+// Define the spectral bands to be used for training the classifier.
+var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7'];
+
+// Sample the specified bands within the defined regions of interest (ROIs) to create training data.
+var training = image.select(bands).sampleRegions({
+  collection: classNames,
+  properties: ['landcover'],
+  scale: 30
+});
+
+// Train a Random Forest classifier with the specified features and class properties.
+var classifier = ee.Classifier.smileRandomForest(10).train({
+  features: training,
+  classProperty: 'landcover',
+  inputProperties: bands
+});
+print(training);
+
+// Classify the image based on the trained classifier and the defined bands.
+var classified = image.select(bands).classify(classifier);
+
+// Add the classified layer to the map with a specific color palette for different land cover classes.
+Map.addLayer(classified, {min: 1, max: 5, palette: ['blue', 'green', 'red', 'grey', 'yellow']}, 'Classification');
+
+// Merge validation data feature collections for assessing classification accuracy.
+var valNames = water_val.merge(forest_val).merge(urban_val).merge(barren_val).merge(grass_val);
+print(valNames);
+
+// Sample regions from the classified image to create validation data based on predefined validation areas.
+var validation = classified.sampleRegions({
+  collection: valNames,
+  properties: ['landcover'],
+  scale: 30,
+});
+print(validation);
+
+// Generate an error matrix to evaluate classification accuracy based on the validation data.
+var testAccuracy = validation.errorMatrix('landcover', 'classification');
+print('Validation error matrix: ', testAccuracy);
+
+// Print the overall accuracy of the classification based on the error matrix.
+print('Validation overall accuracy: ', testAccuracy.accuracy());
+
+var testAccuracy = validation.errorMatrix('landcover', 'classification');
+print('Validation error matrix: ', testAccuracy);
+
+print('Validation overall accuracy: ', testAccuracy.accuracy());
